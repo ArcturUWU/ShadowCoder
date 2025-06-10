@@ -1,0 +1,9 @@
+PyQt6
+pillow
+ollama
+pygetwindow
+mss
+keyboard
+easyocr
+numpy
+pywin32
