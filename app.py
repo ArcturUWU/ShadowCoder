@@ -5,19 +5,22 @@ import mss
 import keyboard
 import ollama
 import easyocr
+import re
+import latex2mathml.converter
 from ctypes import windll
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QPushButton, QTextEdit, QSystemTrayIcon, QMenu,
-    QSlider, QLabel, QFrame, QPlainTextEdit, QSplitter
+    QPushButton, QPlainTextEdit, QSystemTrayIcon, QMenu,
+    QSlider, QLabel, QFrame, QSplitter, QHBoxLayout
 )
-from PyQt6.QtCore import Qt, QPoint, QRect, QRegularExpression
-from PyQt6.QtCore import Qt, QPoint, QRect
+from PyQt6.QtCore import Qt, QPoint, QRegularExpression
 from PyQt6.QtGui import (
-    QIcon, QAction, QPalette, QColor, 
-    QTextCharFormat, QSyntaxHighlighter, 
-    QTextCursor, QFontMetrics, QFont
+    QIcon, QAction, QPalette, QColor,
+    QTextCharFormat, QSyntaxHighlighter, QTextCursor,
+    QFontMetrics, QFont
 )
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 WDA_NONE = 0
 WDA_MONITOR = 1
@@ -28,7 +31,6 @@ class CodeHighlighter(QSyntaxHighlighter):
         super().__init__(parent)
         self.highlighting_rules = []
 
-        # Форматы для разных элементов кода
         keyword_format = QTextCharFormat()
         keyword_format.setForeground(QColor("#569CD6"))
         keyword_format.setFontWeight(QFont.Weight.Bold)
@@ -43,7 +45,6 @@ class CodeHighlighter(QSyntaxHighlighter):
                 (f"\\b{word}\\b", keyword_format)
             )
 
-        # Строки
         string_format = QTextCharFormat()
         string_format.setForeground(QColor("#CE9178"))
         self.highlighting_rules.append(
@@ -53,62 +54,54 @@ class CodeHighlighter(QSyntaxHighlighter):
             (r"'[^'\\]*(\\.[^'\\]*)*'", string_format)
         )
 
-        # Комментарии
         comment_format = QTextCharFormat()
         comment_format.setForeground(QColor("#6A9955"))
         self.highlighting_rules.append(
             (r"#[^\n]*", comment_format)
         )
 
-        # Числа
         number_format = QTextCharFormat()
         number_format.setForeground(QColor("#B5CEA8"))
         self.highlighting_rules.append(
-            (r"\b\d+\b", number_format)
+            (r"\\b\\d+\\b", number_format)
         )
 
-        # Функции
         function_format = QTextCharFormat()
         function_format.setForeground(QColor("#DCDCAA"))
         self.highlighting_rules.append(
-            (r"\b[A-Za-z0-9_]+(?=\()", function_format)
+            (r"[A-Za-z_][A-Za-z0-9_]*\s*(?=\()", function_format)
         )
 
     def highlightBlock(self, text):
-        for pattern, format in self.highlighting_rules:
+        for pattern, fmt in self.highlighting_rules:
             regex = QRegularExpression(pattern)
             iterator = regex.globalMatch(text)
             while iterator.hasNext():
                 match = iterator.next()
-                self.setFormat(match.capturedStart(), match.capturedLength(), format)
+                self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
 
 class CodeEditor(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_editor()
-        
+
     def setup_editor(self):
-        # Настройка шрифта
-        font = QFont("Consolas", 12)
+        font = QFont("Consolas", 11)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.setFont(font)
-        
-        # Настройка отступов
         metrics = QFontMetrics(font)
         self.setTabStopDistance(4 * metrics.horizontalAdvance(' '))
-        
-        # Подсветка текущей строки
         self.setStyleSheet("""
             QPlainTextEdit {
-                background-color: #1E1E1E;
-                color: #D4D4D4;
-                border: none;
+                background-color: rgba(35, 35, 35, 0.95);
+                color: #E0E0E0;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 8px;
                 selection-background-color: #264F78;
                 selection-color: #FFFFFF;
             }
         """)
-        
-        # Добавляем подсветку синтаксиса
         self.highlighter = CodeHighlighter(self.document())
 
 class ModernFrame(QFrame):
@@ -117,9 +110,9 @@ class ModernFrame(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet("""
             ModernFrame {
-                background-color: rgba(30, 30, 30, 0.97);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 10px;
+                background-color: rgba(25, 25, 25, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
             }
         """)
 
@@ -128,25 +121,171 @@ class ModernButton(QPushButton):
         super().__init__(text, parent)
         self.setStyleSheet("""
             QPushButton {
-                background-color: rgba(60, 60, 60, 0.8);
-                color: white;
+                background-color: rgba(45, 45, 45, 0.9);
+                color: #E0E0E0;
                 border: none;
-                padding: 10px;
-                border-radius: 5px;
-                font-size: 13px;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 500;
+                transition: background-color 0.2s;
             }
             QPushButton:hover {
-                background-color: rgba(80, 80, 80, 0.9);
+                background-color: rgba(60, 60, 60, 0.95);
             }
             QPushButton:pressed {
-                background-color: rgba(40, 40, 40, 0.9);
+                background-color: rgba(35, 35, 35, 0.95);
             }
         """)
+
+class ModernTextBrowser(QWebEngineView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.setStyleSheet("""
+            QWebEngineView {
+                background-color: rgba(35, 35, 35, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+        """)
+
+    def set_content(self, html_content: str):
+        full_html = f"""
+        <html>
+        <head>
+            <meta charset=\"utf-8\">
+            <script src=\"https://polyfill.io/v3/polyfill.min.js?features=es6\"></script>
+            <script>
+            window.MathJax = {{
+                tex: {{
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$','$$'], ['\\[','\\]']]
+                }}
+            }};
+            </script>
+            <script id=\"MathJax-script\" async src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script>
+            <style>
+                body {{
+                    background-color: rgba(35, 35, 35, 0.95);
+                    color: #E0E0E0;
+                    font-family: 'Segoe UI', sans-serif;
+                    padding: 12px;
+                    margin: 0;
+                    line-height: 1.5;
+                    font-size: 13px;
+                }}
+                .math-display {{
+                    text-align: center;
+                    margin: 12px 0;
+                    padding: 8px;
+                    background: rgba(45, 45, 45, 0.5);
+                    border-radius: 6px;
+                    color: #E0E0E0;
+                }}
+                .math-inline {{
+                    padding: 0 2px;
+                    color: #E0E0E0;
+                }}
+                pre {{
+                    background: rgba(45, 45, 45, 0.5);
+                    padding: 12px;
+                    border-radius: 6px;
+                    margin: 8px 0;
+                    overflow-x: auto;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                }}
+                code {{
+                    font-family: 'Consolas', monospace;
+                    font-size: 12px;
+                    color: #E0E0E0;
+                }}
+                .keyword {{ color: #569CD6; font-weight: bold; }}
+                .string {{ color: #CE9178; }}
+                .comment {{ color: #6A9955; }}
+                .number {{ color: #B5CEA8; }}
+                .decorator {{ color: #DCDCAA; }}
+                .class {{ color: #4EC9B0; }}
+                .function {{ color: #DCDCAA; }}
+                .operator {{ color: #D4D4D4; }}
+                p {{
+                    margin: 8px 0;
+                    color: #E0E0E0;
+                }}
+                ul, ol {{
+                    margin: 8px 0;
+                    padding-left: 24px;
+                    color: #E0E0E0;
+                }}
+                li {{
+                    margin: 4px 0;
+                    color: #E0E0E0;
+                }}
+                blockquote {{
+                    border-left: 3px solid rgba(255, 255, 255, 0.1);
+                    margin: 8px 0;
+                    padding: 4px 12px;
+                    background: rgba(45, 45, 45, 0.3);
+                    border-radius: 0 6px 6px 0;
+                    color: #E0E0E0;
+                }}
+                a {{
+                    color: #569CD6;
+                    text-decoration: none;
+                }}
+                a:hover {{
+                    text-decoration: underline;
+                }}
+                h1, h2, h3, h4, h5, h6 {{
+                    color: #E0E0E0;
+                    margin: 12px 0 8px 0;
+                }}
+                table {{
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin: 8px 0;
+                    background: rgba(45, 45, 45, 0.3);
+                    border-radius: 6px;
+                }}
+                th, td {{
+                    padding: 8px;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    color: #E0E0E0;
+                }}
+                th {{
+                    background: rgba(45, 45, 45, 0.5);
+                }}
+                strong {{
+                    font-weight: bold;
+                    color: #FFFFFF;
+                }}
+                ::-webkit-scrollbar {{
+                    width: 8px;
+                    height: 8px;
+                }}
+                ::-webkit-scrollbar-track {{
+                    background: rgba(45, 45, 45, 0.3);
+                    border-radius: 4px;
+                }}
+                ::-webkit-scrollbar-thumb {{
+                    background: rgba(255, 255, 255, 0.1);
+                    border-radius: 4px;
+                }}
+                ::-webkit-scrollbar-thumb:hover {{
+                    background: rgba(255, 255, 255, 0.2);
+                }}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+        self.setHtml(full_html)
 
 class ScreenshotApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        # Скрываем окно из панели задач
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.Tool |
@@ -154,99 +293,176 @@ class ScreenshotApp(QMainWindow):
             Qt.WindowType.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
         self.chat_history = []
         self.reader = easyocr.Reader(['en', 'ru'])
+        self.exclude_from_capture()
         self.initUI()
         self.exclude_from_capture()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.exclude_from_capture()
+        
+    def process_math_formulas(self, text):
+        # Сначала обработаем переносы строк
+        text = text.replace('---', '<hr style="border: none; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;">')
+        text = text.replace('👉', '<br>👉')
+        
+        # Обработаем жирный текст
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+        
+        # Обработаем блочные формулы
+        result = re.sub(
+            r'\$\$(.*?)\$\$',
+            r'<div class="math-display">$$\1$$</div>',
+            text,
+            flags=re.DOTALL
+        )
+        
+        # Обработаем строчные формулы
+        result = re.sub(
+            r'(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)',
+            r'<span class="math-inline">$\1$</span>',
+            result
+        )
+        
+        def format_code_block(match):
+            lang = match.group(1).lower()
+            code = match.group(2).strip()
+            if lang in ['python', 'py', '']:
+                return self._format_code('python', code)
+            return f'<pre><code class="{lang}">{code}</code></pre>'
+            
+        result = re.sub(
+            r'```(\w*)\n(.*?)```',
+            format_code_block,
+            result,
+            flags=re.DOTALL
+        )
+        return result
+
+    def _format_code(self, language, code):
+        code = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        patterns = [
+            (r'\b(def|class|if|else|elif|for|while|try|except|finally|with|as|import|from|return|yield|break|continue|pass|raise|True|False|None|and|or|not|is|in)\b', 'keyword'),
+            (r'"""[\s\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'|"[^"\\\\]*(?:\\\\.[^"\\\\]*)*"|\'[^\'\\\\]*(?:\\\\.[^\'\\\\]*)*\'', 'string'),
+            (r'#[^\n]*', 'comment'),
+            (r'\b\d+\.?\d*\b', 'number'),
+            (r'@\w+', 'decorator'),
+            (r'\b[A-Z][A-Za-z0-9_]*\b', 'class'),
+            (r'\b[a-z_][a-z0-9_]*(?=\s*\()', 'function'),
+            (r'[+\-*/%=<>!&|^~]+', 'operator')
+        ]
+        tokens = []
+        for pattern, token_type in patterns:
+            for match in re.finditer(pattern, code):
+                tokens.append((match.start(), match.end(), token_type, match.group(0)))
+        tokens.sort()
+        filtered_tokens = []
+        last_end = 0
+        for start, end, token_type, text in tokens:
+            if start >= last_end:
+                filtered_tokens.append((start, end, token_type, text))
+                last_end = end
+        result = []
+        last_pos = 0
+        for start, end, token_type, text in filtered_tokens:
+            if start > last_pos:
+                result.append(code[last_pos:start])
+            result.append(f'<span class=\"{token_type}\">{text}</span>')
+            last_pos = end
+        if last_pos < len(code): result.append(code[last_pos:])
+        highlighted_code = ''.join(result).replace('\n', '<br/>')
+        return f'<pre><code class=\"python\">{highlighted_code}</code></pre>'
 
     def initUI(self):
         central_widget = ModernFrame()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
-        # Настройка прозрачности
-        opacity_label = QLabel("Прозрачность")
-        opacity_label.setStyleSheet("color: white; font-size: 13px;")
+        # Компактная панель управления
+        control_panel = QWidget()
+        control_layout = QHBoxLayout(control_panel)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.setSpacing(8)
+
+        # Кнопки управления
+        screenshot_btn = ModernButton("📷")
+        solve_btn = ModernButton("🔍")
+        clear_btn = ModernButton("🗑️")
+        screenshot_btn.setToolTip("Сделать скриншот (Ctrl+Shift+S)")
+        solve_btn.setToolTip("Решить задачу")
+        clear_btn.setToolTip("Очистить")
+        screenshot_btn.clicked.connect(self.take_screenshot)
+        solve_btn.clicked.connect(self.solve_task)
+        clear_btn.clicked.connect(self.clear_context)
+        
+        # Слайдер прозрачности
+        opacity_label = QLabel("⚪")
+        opacity_label.setStyleSheet("color: #E0E0E0; font-size: 12px;")
+        opacity_label.setFixedWidth(20)
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(20, 100)
+        self.opacity_slider.setValue(90)
+        self.opacity_slider.setFixedWidth(80)
+        self.opacity_slider.valueChanged.connect(self.change_opacity)
         self.opacity_slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 height: 4px;
                 background: rgba(60, 60, 60, 0.8);
-                margin: 0px;
+                margin: 2px 0;
                 border-radius: 2px;
             }
             QSlider::handle:horizontal {
-                background: white;
+                background: #E0E0E0;
                 border: none;
-                width: 16px;
-                margin: -6px 0;
-                border-radius: 8px;
-            }
-        """)
-        self.opacity_slider.setRange(20, 100)
-        self.opacity_slider.setValue(90)
-        self.opacity_slider.valueChanged.connect(self.change_opacity)
-
-        # Создаем сплиттер для разделения задачи и решения
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background: rgba(255, 255, 255, 0.1);
-                height: 2px;
+                width: 12px;
+                margin: -4px 0;
+                border-radius: 6px;
             }
         """)
 
-        # Редактор для задачи
+        control_layout.addWidget(screenshot_btn)
+        control_layout.addWidget(solve_btn)
+        control_layout.addWidget(clear_btn)
+        control_layout.addStretch()
+        control_layout.addWidget(opacity_label)
+        control_layout.addWidget(self.opacity_slider)
+
+        # Основной контент
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+
+        # Поле ввода задачи
         self.task_edit = CodeEditor()
-        self.task_edit.setPlaceholderText("Условие задачи")
-        self.task_edit.setMinimumHeight(100)
+        self.task_edit.setPlaceholderText("Введите условие задачи или сделайте скриншот...")
+        self.task_edit.setMinimumHeight(60)
+        self.task_edit.setMaximumHeight(100)
 
-        # Редактор для решения
-        self.solution_edit = CodeEditor()
-        self.solution_edit.setPlaceholderText("Решение")
-        self.solution_edit.setMinimumHeight(200)
+        # Поле решения
+        self.solution_edit = ModernTextBrowser()
+        self.solution_edit.setMinimumHeight(300)
 
-        # Добавляем редакторы в сплиттер
-        splitter.addWidget(self.task_edit)
-        splitter.addWidget(self.solution_edit)
+        content_layout.addWidget(self.task_edit)
+        content_layout.addWidget(self.solution_edit)
 
-        # Кнопки
-        screenshot_btn = ModernButton("📷 Сделать скриншот")
-        solve_btn = ModernButton("🔍 Решить задачу")
-        clear_btn = ModernButton("🗑️ Очистить контекст")
+        # Добавляем все в основной layout
+        layout.addWidget(control_panel)
+        layout.addWidget(content_widget)
 
-        screenshot_btn.clicked.connect(self.take_screenshot)
-        solve_btn.clicked.connect(self.solve_task)
-        clear_btn.clicked.connect(self.clear_context)
+        # Устанавливаем размер окна
+        self.setGeometry(100, 100, 600, 500)
 
-        # Добавляем виджеты в layout
-        layout.addWidget(opacity_label)
-        layout.addWidget(self.opacity_slider)
-        layout.addWidget(splitter)
-        layout.addWidget(screenshot_btn)
-        layout.addWidget(solve_btn)
-        layout.addWidget(clear_btn)
-
-        # Системный трей
+        # Настройка системного трея
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(QIcon("icon.png"))
         tray_menu = QMenu()
-        tray_menu.setStyleSheet("""
-            QMenu {
-                background-color: rgba(30, 30, 30, 0.97);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QMenu::item:selected {
-                background-color: rgba(60, 60, 60, 0.8);
-            }
-        """)
-        
         show_action = QAction("Показать", self)
         quit_action = QAction("Выход", self)
         show_action.triggered.connect(self.show)
@@ -255,23 +471,14 @@ class ScreenshotApp(QMainWindow):
         tray_menu.addAction(quit_action)
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
-
+        
         keyboard.add_hotkey('ctrl+shift+s', self.take_screenshot)
-
-        self.setGeometry(100, 100, 600, 800)
-        self.setWindowTitle('Screenshot Assistant')
+        self.setWindowTitle('Interview Assistant')
 
     def exclude_from_capture(self):
-        """Исключаем окно из захвата экрана"""
         hwnd = int(self.winId())
-        
-        # Пробуем использовать современный метод для Windows 10+
-        try:
-            windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
-        except Exception as e:
-            print(f"WDA_EXCLUDEFROMCAPTURE не поддерживается: {e}")
-            # Используем старый метод как запасной вариант
-            windll.user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR)
+        windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+
 
     def change_opacity(self, value):
         self.setWindowOpacity(value / 100.0)
@@ -280,7 +487,6 @@ class ScreenshotApp(QMainWindow):
         was_visible = self.isVisible()
         self.hide()
         QApplication.processEvents()
-
         with mss.mss() as sct:
             path = os.path.join(tempfile.gettempdir(), "temp_screenshot.png")
             sct.shot(output=path)
@@ -290,41 +496,51 @@ class ScreenshotApp(QMainWindow):
                 if any(kw in text.lower() for kw in ('python','массив', 'массивы','код','class','def','for','while')):
                     self.task_edit.setPlainText(text)
                 else:
-                    self.solution_edit.setPlainText("ℹ️ В скриншоте не обнаружено кодовой задачи")
-            except Exception as e:
-                self.solution_edit.setPlainText(f"⚠️ Ошибка при распознавании текста: {e}")
+                    self.solution_edit.set_content("ℹ️ В скриншоте не обнаружено кодовой задачи")
+            except Exception:
+                self.solution_edit.set_content("⚠️ Ошибка при распознавании текста")
             finally:
-                if was_visible:
-                    self.show()
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+                if was_visible: self.show()
+                try: os.remove(path)
+                except OSError: pass
 
     def solve_task(self):
         task = self.task_edit.toPlainText().strip()
         if not task:
-            self.solution_edit.setPlainText("⚠️ Введите условие задачи")
+            self.solution_edit.set_content("⚠️ Введите условие задачи")
             return
         try:
             response = ollama.chat(
-                model='qwen2.5-coder:14b',
-                messages=[{
-                    'role': 'user',
-                    'content': f"""Реши следующую задачу по программированию.
-Дай только код решения с минимальными комментариями:
-{task}"""
-                }]
+                model='qwen3:30b',
+                messages=[
+                    {'role': 'system', 'content': 
+                     '''Ты - скрытый помощник соискателям на техническом собеседовании на русском языке. Все твои ответы на поставленные задачи сопровождай комментариями как это передать интервьюверу. Ты должен действовать по следующим правилам:
+                    1) Если ты видишь задание - ты должен предложить кандидату решение и чёткий ответ и объяснение для интервьювера
+                    2) Если ты видишь код без задания, значит ты должен step-by-step внести оптимизацию в алгоритм и выдать соискателю последовательный ответ, который он дает интервьюверу.
+                    3) Если ты видишь теоретический вопрос - сделай развёрнутый ответ с комментариями о том, что должен сказать соискатель с формулами, объяснениями
+                    4) Для формул используй:
+                       - Для блочных формул: $$формула$$
+                       - Для строчных формул внутри текста: $формула$
+                    5) Если требуется написать код, чётко комментируй что и для чего ты пишешь
+                    6) Чётко пиши соискателю что и в какой последовательности он должен говорить, используя 👉 для каждого шага
+                    7) Используя какую-либо формулу, теорему или метод, всегда приводи соискателю краткое объяснение с формулами и как это преподнести интервьюверу.
+                    8) При написании любого алгоритма - необходимо алгоритмическим языком простыми словами сначала описать, что он делает и его сложность
+                    9) Важные заметки и предупреждения обрамляй в ❗️текст❗️
+                    10) Код всегда оформляй в блоках ```python код ```
+                    Твой итоговый ответ - это всегда руководство, где ты приводишь реплики для соискателя, последовательность озвучивания и код. Всё это то, что соискатель должен сказать интервьюверу'''},
+                    {'role': 'user', 'content': task}
+                ]
             )
-            solution = response['message']['content']
-            self.solution_edit.setPlainText(solution)
+            solution = response['message']['content'].split('</think>')[1]
+            formatted = self.process_math_formulas(solution)
+            self.solution_edit.set_content(formatted)
             self.chat_history.append({"task": task, "solution": solution})
         except Exception as e:
-            self.solution_edit.setPlainText(f"⚠️ Ошибка: {e}")
+            self.solution_edit.set_content(f"⚠️ Ошибка: {e}")
 
     def clear_context(self):
         self.task_edit.clear()
-        self.solution_edit.clear()
+        self.solution_edit.set_content("")
         self.chat_history.clear()
 
     def mousePressEvent(self, event):
@@ -345,4 +561,5 @@ if __name__ == '__main__':
 
     window = ScreenshotApp()
     window.show()
+    window.exclude_from_capture()
     sys.exit(app.exec())
