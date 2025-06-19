@@ -2,12 +2,17 @@ import sys
 import os
 import tempfile
 import mss
-import keyboard
 import ollama
 import easyocr
 import re
-import latex2mathml.converter
 from ctypes import windll
+from threading import Thread
+from pynput import keyboard
+from PyQt6.QtCore import QObject, pyqtSignal
+
+
+
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
@@ -86,7 +91,7 @@ class CodeEditor(QPlainTextEdit):
         self.setup_editor()
 
     def setup_editor(self):
-        font = QFont("Consolas", 11)
+        font = QFont("Consolas", 16)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.setFont(font)
         metrics = QFontMetrics(font)
@@ -96,10 +101,11 @@ class CodeEditor(QPlainTextEdit):
                 background-color: rgba(35, 35, 35, 0.95);
                 color: #E0E0E0;
                 border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
-                padding: 8px;
+                border-radius: 12px;
+                padding: 16px;
                 selection-background-color: #264F78;
                 selection-color: #FFFFFF;
+                font-size: 18px;
             }
         """)
         self.highlighter = CodeHighlighter(self.document())
@@ -124,10 +130,10 @@ class ModernButton(QPushButton):
                 background-color: rgba(45, 45, 45, 0.9);
                 color: #E0E0E0;
                 border: none;
-                padding: 8px 12px;
-                border-radius: 6px;
-                font-size: 12px;
-                font-weight: 500;
+                padding: 14px 24px;
+                border-radius: 10px;
+                font-size: 18px;
+                font-weight: 600;
                 transition: background-color 0.2s;
             }
             QPushButton:hover {
@@ -146,7 +152,7 @@ class ModernTextBrowser(QWebEngineView):
             QWebEngineView {
                 background-color: rgba(35, 35, 35, 0.95);
                 border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
+                border-radius: 12px;
             }
         """)
 
@@ -170,34 +176,37 @@ class ModernTextBrowser(QWebEngineView):
                     background-color: rgba(35, 35, 35, 0.95);
                     color: #E0E0E0;
                     font-family: 'Segoe UI', sans-serif;
-                    padding: 12px;
+                    padding: 24px;
                     margin: 0;
-                    line-height: 1.5;
-                    font-size: 13px;
+                    line-height: 1.7;
+                    font-size: 20px;
                 }}
                 .math-display {{
                     text-align: center;
-                    margin: 12px 0;
-                    padding: 8px;
+                    margin: 18px 0;
+                    padding: 12px;
                     background: rgba(45, 45, 45, 0.5);
-                    border-radius: 6px;
+                    border-radius: 8px;
                     color: #E0E0E0;
+                    font-size: 22px;
                 }}
                 .math-inline {{
-                    padding: 0 2px;
+                    padding: 0 4px;
                     color: #E0E0E0;
+                    font-size: 20px;
                 }}
                 pre {{
                     background: rgba(45, 45, 45, 0.5);
-                    padding: 12px;
-                    border-radius: 6px;
-                    margin: 8px 0;
+                    padding: 18px;
+                    border-radius: 8px;
+                    margin: 12px 0;
                     overflow-x: auto;
                     border: 1px solid rgba(255, 255, 255, 0.08);
+                    font-size: 18px;
                 }}
                 code {{
                     font-family: 'Consolas', monospace;
-                    font-size: 12px;
+                    font-size: 18px;
                     color: #E0E0E0;
                 }}
                 .keyword {{ color: #569CD6; font-weight: bold; }}
@@ -209,48 +218,56 @@ class ModernTextBrowser(QWebEngineView):
                 .function {{ color: #DCDCAA; }}
                 .operator {{ color: #D4D4D4; }}
                 p {{
-                    margin: 8px 0;
+                    margin: 12px 0;
                     color: #E0E0E0;
+                    font-size: 20px;
                 }}
                 ul, ol {{
-                    margin: 8px 0;
-                    padding-left: 24px;
+                    margin: 12px 0;
+                    padding-left: 32px;
                     color: #E0E0E0;
+                    font-size: 20px;
                 }}
                 li {{
-                    margin: 4px 0;
+                    margin: 6px 0;
                     color: #E0E0E0;
+                    font-size: 20px;
                 }}
                 blockquote {{
-                    border-left: 3px solid rgba(255, 255, 255, 0.1);
-                    margin: 8px 0;
-                    padding: 4px 12px;
+                    border-left: 4px solid rgba(255, 255, 255, 0.1);
+                    margin: 12px 0;
+                    padding: 8px 18px;
                     background: rgba(45, 45, 45, 0.3);
-                    border-radius: 0 6px 6px 0;
+                    border-radius: 0 8px 8px 0;
                     color: #E0E0E0;
+                    font-size: 20px;
                 }}
                 a {{
                     color: #569CD6;
                     text-decoration: none;
+                    font-size: 20px;
                 }}
                 a:hover {{
                     text-decoration: underline;
                 }}
                 h1, h2, h3, h4, h5, h6 {{
                     color: #E0E0E0;
-                    margin: 12px 0 8px 0;
+                    margin: 18px 0 12px 0;
+                    font-size: 24px;
                 }}
                 table {{
                     border-collapse: collapse;
                     width: 100%;
-                    margin: 8px 0;
+                    margin: 12px 0;
                     background: rgba(45, 45, 45, 0.3);
-                    border-radius: 6px;
+                    border-radius: 8px;
+                    font-size: 20px;
                 }}
                 th, td {{
-                    padding: 8px;
+                    padding: 12px;
                     border: 1px solid rgba(255, 255, 255, 0.08);
                     color: #E0E0E0;
+                    font-size: 20px;
                 }}
                 th {{
                     background: rgba(45, 45, 45, 0.5);
@@ -258,18 +275,19 @@ class ModernTextBrowser(QWebEngineView):
                 strong {{
                     font-weight: bold;
                     color: #FFFFFF;
+                    font-size: 20px;
                 }}
                 ::-webkit-scrollbar {{
-                    width: 8px;
-                    height: 8px;
+                    width: 12px;
+                    height: 12px;
                 }}
                 ::-webkit-scrollbar-track {{
                     background: rgba(45, 45, 45, 0.3);
-                    border-radius: 4px;
+                    border-radius: 6px;
                 }}
                 ::-webkit-scrollbar-thumb {{
                     background: rgba(255, 255, 255, 0.1);
-                    border-radius: 4px;
+                    border-radius: 6px;
                 }}
                 ::-webkit-scrollbar-thumb:hover {{
                     background: rgba(255, 255, 255, 0.2);
@@ -282,6 +300,31 @@ class ModernTextBrowser(QWebEngineView):
         </html>
         """
         self.setHtml(full_html)
+
+
+class GlobalHotkeyManager(QObject):
+    screenshot_triggered = pyqtSignal()
+    solve_triggered = pyqtSignal()
+
+class HotkeyThread(Thread):
+    def __init__(self, hotkey_manager):
+        super().__init__(daemon=True)
+        self.hotkey_manager = hotkey_manager
+        
+    def run(self):
+        def on_screenshot():
+            self.hotkey_manager.screenshot_triggered.emit()
+            
+        def on_solve():
+            self.hotkey_manager.solve_triggered.emit()
+            
+        with keyboard.GlobalHotKeys({
+            '<ctrl>+<space>': on_screenshot,
+            '<ctrl>+<alt>': on_solve
+        }) as listener:
+            listener.join()
+
+
 
 class ScreenshotApp(QMainWindow):
     def __init__(self):
@@ -299,6 +342,13 @@ class ScreenshotApp(QMainWindow):
         self.exclude_from_capture()
         self.initUI()
         self.exclude_from_capture()
+        self.hotkey_manager = GlobalHotkeyManager()
+        self.hotkey_thread = HotkeyThread(self.hotkey_manager)
+        self.hotkey_thread.start()
+        
+        self.hotkey_manager.screenshot_triggered.connect(self.take_screenshot)
+        self.hotkey_manager.solve_triggered.connect(self.solve_task)
+
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -380,14 +430,14 @@ class ScreenshotApp(QMainWindow):
         central_widget = ModernFrame()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
 
         # Компактная панель управления
         control_panel = QWidget()
         control_layout = QHBoxLayout(control_panel)
         control_layout.setContentsMargins(0, 0, 0, 0)
-        control_layout.setSpacing(8)
+        control_layout.setSpacing(16)
 
         # Кнопки управления
         screenshot_btn = ModernButton("📷")
@@ -396,33 +446,36 @@ class ScreenshotApp(QMainWindow):
         screenshot_btn.setToolTip("Сделать скриншот (Ctrl+Shift+S)")
         solve_btn.setToolTip("Решить задачу")
         clear_btn.setToolTip("Очистить")
+        screenshot_btn.setMinimumHeight(48)
+        solve_btn.setMinimumHeight(48)
+        clear_btn.setMinimumHeight(48)
         screenshot_btn.clicked.connect(self.take_screenshot)
         solve_btn.clicked.connect(self.solve_task)
         clear_btn.clicked.connect(self.clear_context)
         
         # Слайдер прозрачности
         opacity_label = QLabel("⚪")
-        opacity_label.setStyleSheet("color: #E0E0E0; font-size: 12px;")
-        opacity_label.setFixedWidth(20)
+        opacity_label.setStyleSheet("color: #E0E0E0; font-size: 18px;")
+        opacity_label.setFixedWidth(32)
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.opacity_slider.setRange(20, 100)
         self.opacity_slider.setValue(90)
-        self.opacity_slider.setFixedWidth(80)
+        self.opacity_slider.setFixedWidth(120)
         self.opacity_slider.valueChanged.connect(self.change_opacity)
         self.opacity_slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                height: 4px;
+                height: 8px;
                 background: rgba(60, 60, 60, 0.8);
-                margin: 2px 0;
-                border-radius: 2px;
+                margin: 4px 0;
+                border-radius: 4px;
             }
             QSlider::handle:horizontal {
                 background: #E0E0E0;
                 border: none;
-                width: 12px;
-                margin: -4px 0;
-                border-radius: 6px;
+                width: 24px;
+                margin: -8px 0;
+                border-radius: 12px;
             }
         """)
 
@@ -437,17 +490,17 @@ class ScreenshotApp(QMainWindow):
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(8)
+        content_layout.setSpacing(16)
 
         # Поле ввода задачи
         self.task_edit = CodeEditor()
         self.task_edit.setPlaceholderText("Введите условие задачи или сделайте скриншот...")
-        self.task_edit.setMinimumHeight(60)
-        self.task_edit.setMaximumHeight(100)
+        self.task_edit.setMinimumHeight(100)
+        self.task_edit.setMaximumHeight(180)
 
         # Поле решения
         self.solution_edit = ModernTextBrowser()
-        self.solution_edit.setMinimumHeight(300)
+        self.solution_edit.setMinimumHeight(400)
 
         content_layout.addWidget(self.task_edit)
         content_layout.addWidget(self.solution_edit)
@@ -457,7 +510,7 @@ class ScreenshotApp(QMainWindow):
         layout.addWidget(content_widget)
 
         # Устанавливаем размер окна
-        self.setGeometry(100, 100, 600, 500)
+        self.setGeometry(100, 100, 900, 700)
 
         # Настройка системного трея
         self.tray_icon = QSystemTrayIcon(self)
@@ -472,7 +525,8 @@ class ScreenshotApp(QMainWindow):
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
         
-        keyboard.add_hotkey('ctrl+shift+s', self.take_screenshot)
+        shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
+        shortcut.activated.connect(self.take_screenshot)
         self.setWindowTitle('Interview Assistant')
 
     def exclude_from_capture(self):
@@ -493,7 +547,7 @@ class ScreenshotApp(QMainWindow):
             try:
                 results = self.reader.readtext(path)
                 text = "\n".join(r[1] for r in results)
-                if any(kw in text.lower() for kw in ('python','массив', 'массивы','код','class','def','for','while')):
+                if any(kw in text.lower() for kw in ('описать', 'пример', 'написать', 'python','массив', 'массивы','код','class','def','for','while')):
                     self.task_edit.setPlainText(text)
                 else:
                     self.solution_edit.set_content("ℹ️ В скриншоте не обнаружено кодовой задачи")
